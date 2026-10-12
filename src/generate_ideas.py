@@ -33,183 +33,127 @@ if not GROQ_API_KEY:
 
 client = Groq(api_key=GROQ_API_KEY)
 
-def get_active_models(client):
-    """Consulta os modelos de texto ativos na conta Groq."""
+def get_best_model(client):
+    """Retorna o melhor modelo de texto ativo na conta Groq."""
     preferred = [
         "qwen/qwen3.8-27b",
         "openai/gpt-oss-120b",
-        "openai/gpt-oss-20b",
         "llama-3.3-70b-versatile",
         "llama-3.1-8b-instant"
     ]
     try:
         models_page = client.models.list()
-        all_ids = [m.id for m in models_page.data]
-        
-        # Filtra apenas modelos de texto válidos
-        ignore_keywords = ["guard", "whisper", "vision", "audio", "orpheus", "allam", "safeguard", "embed"]
-        valid = [
-            m_id for m_id in all_ids 
-            if not any(k in m_id.lower() for k in ignore_keywords)
-        ]
-        
-        ordered = [p for p in preferred if p in valid]
-        for v in valid:
-            if v not in ordered:
-                ordered.append(v)
-        return ordered if ordered else all_ids
-    except Exception as e:
-        print(f"⚠️ Erro ao listar modelos do Groq: {e}", flush=True)
-        return preferred
-
-SYSTEM_PROMPT = """
-Você é um Ghostwriter especialista em LinkedIn para Desenvolvedores de Software e Profissionais de Tecnologia.
-Sua missão é gerar 3 rascunhos de posts em Português (PT-BR), escritos em 1ª pessoa do singular ("eu"), aplicando uma estrutura rigorosa de copywriting e alto engajamento.
-
-### REGRAS OBRIGATÓRIAS DE ESTRUTURA PARA CADA POST:
-1. **Gancho 1:** Frase curta, impactante e direta que atrai a atenção do leitor. NUNCA comece com uma pergunta.
-2. **Gancho 2:** Frase curta na linha seguinte que estabelece o contexto do post.
-3. **Corpo do Post:** 
-   - Preencha uma lacuna de conhecimento de forma extremamente didática e simples (passo a passo em etapas distintas).
-   - Escreva novas frases em novas linhas (quebras de linha frequentes para facilitar a leitura no celular).
-   - Linguagem acessível, fluida, humana e natural. Evite jargões complexos desnecessários.
-4. **Penúltima frase:** Uma afirmação contundente que reforça uma crença forte e compartilhada da comunidade dev.
-5. **Última frase (CTA):** Um convite à interação incentivando os leitores a comentarem algo que eles realmente queiram compartilhar.
-
-### BANLIST E REGRAS DE ESTILO (HUMANIZAÇÃO):
-- NUNCA use as palavras/expressões proibidas: "no mundo dinâmico de hoje", "revolucionar", "alavancar", "divisor de águas", "no ecossistema atual", "desvendar", "mergulhar fundo", "em suma", "vamos lá".
-- Proibido uso excessivo de emojis (máximo 1 ou 2 por post inteiro).
-- Proibido hashtags em excesso (máximo 3 no final).
-
-### FORMATO DE SAÍDA EM JSON:
-Você DEVE responder EXCLUSIVAMENTE em formato JSON contendo a chave "posts" com uma lista de 3 objetos:
-{
-  "posts": [
-    {
-      "titulo_ideia": "Título curto da ideia 1",
-      "pilar": "Dev & Código",
-      "formato": "Tutorial / Dica Prática",
-      "conteudo_post": "Texto completo do post 1..."
-    },
-    {
-      "titulo_ideia": "Título curto da ideia 2",
-      "pilar": "Carreira & Mercado",
-      "formato": "Análise / Opinião",
-      "conteudo_post": "Texto completo do post 2..."
-    },
-    {
-      "titulo_ideia": "Título curto da ideia 3",
-      "pilar": "Tendências & IA",
-      "formato": "Storytelling / Experiência",
-      "conteudo_post": "Texto completo do post 3..."
-    }
-  ]
-}
-"""
-
-def parse_response_to_ideas(raw_text):
-    """Tenta converter a resposta da IA em lista de posts com múltiplos fallbacks."""
-    if not raw_text or not raw_text.strip():
-        return []
-        
-    cleaned = raw_text.strip()
-    
-    # Limpa blocos de código Markdown
-    if "```" in cleaned:
-        match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned)
-        if match:
-            cleaned = match.group(1).strip()
-        else:
-            cleaned = cleaned.replace("```json", "").replace("```", "").strip()
-
-    # Tentativa 1: Parse direto do JSON
-    try:
-        data = json.loads(cleaned)
-        if isinstance(data, dict):
-            if "posts" in data and isinstance(data["posts"], list):
-                return data["posts"]
-            elif "ideias" in data and isinstance(data["ideias"], list):
-                return data["ideias"]
-            else:
-                return [data]
-        elif isinstance(data, list):
-            return data
+        available = [m.id for m in models_page.data]
+        for p in preferred:
+            if p in available:
+                return p
+        # Se não achou preferencial, pega o primeiro de texto válido
+        valid = [m for m in available if not any(x in m for x in ["guard", "whisper", "vision", "audio"])]
+        return valid[0] if valid else "qwen/qwen3.8-27b"
     except Exception:
-        pass
+        return "qwen/qwen3.8-27b"
 
-    # Tentativa 2: Buscar JSON usando regex para encontrar { ... } ou [ ... ]
-    json_match = re.search(r"(\[[\s\S]*\]|\{[\s\S]*\})", cleaned)
-    if json_match:
-        try:
-            data = json.loads(json_match.group(1))
-            if isinstance(data, dict):
-                if "posts" in data:
-                    return data["posts"]
-                return [data]
-            elif isinstance(data, list):
-                return data
-        except Exception:
-            pass
-
-    # Tentativa 3 (Fallback de emergência): Se veio texto puro, encapsula como um post para não perder o conteúdo
-    lines = [l.strip() for l in cleaned.splitlines() if l.strip()]
-    first_line = lines[0] if lines else "Post Gerado pela IA"
-    title = first_line.replace("#", "").replace("*", "").strip()[:60]
-    
-    return [{
-        "titulo_ideia": title,
-        "pilar": "Dev & Código",
-        "formato": "Tutorial / Dica Prática",
-        "conteudo_post": cleaned
-    }]
+def call_groq(model_name, system_prompt, user_prompt):
+    """Executa uma chamada ao Groq com tratamento de erro."""
+    response = client.chat.completions.create(
+        model=model_name,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        temperature=0.7,
+        max_tokens=2500
+    )
+    return response.choices[0].message.content.strip()
 
 def generate_ideas():
-    print("🔍 Coletando contexto (Notion + Notícias)...", flush=True)
+    print("🔍 Coletando contexto da semana (Notion + Notícias)...", flush=True)
     context = get_full_context()
+    model = get_best_model(client)
+    print(f"🤖 Usando o modelo Groq ({model}) na esteira de 3 etapas de refinamento...", flush=True)
 
-    user_prompt = f"""
-    Com base no contexto atual coletado abaixo, gere 3 posts de altíssimo engajamento seguindo a estrutura do sistema.
+    # =========================================================================
+    # ETAPA 1: CRIAÇÃO DO RASCUNHO BASE (ESTRUTURA DE ENGAJAMENTO)
+    # =========================================================================
+    print(" ➔ [Etapa 1/3] Criando rascunho com Gancho Duplo e Estrutura de Engajamento...", flush=True)
+    
+    system_prompt_1 = """
+    Você é um Ghostwriter especialista em LinkedIn para Desenvolvedores de Software.
+    Sua missão é selecionar o melhor assunto do contexto e criar 1 post em Português (PT-BR), em 1ª pessoa ("eu").
 
-    ### CONTEXTO DA SEMANA:
-    {json.dumps(context, ensure_ascii=False, indent=2)}
-
-    Retorne a resposta EXCLUSIVAMENTE em formato JSON com 3 posts na chave 'posts'.
+    REGRAS DE ESTRUTURA OBRIGATÓRIAS:
+    1. Gancho 1: Frase curta, impactante e direta que atrai a atenção. NUNCA comece com uma pergunta.
+    2. Gancho 2: Frase curta na linha seguinte estabelecendo o contexto.
+    3. Corpo: Preencha uma lacuna de conhecimento ajudando as pessoas em etapas distintas (passo a passo em linhas separadas com quebra de linha).
+    4. Penúltima frase: Uma afirmação contundente que reforça uma crença forte do público dev.
+    5. Última frase: Um convite à interação incentivando comentários que as pessoas queiram compartilhar.
     """
 
-    candidate_models = get_active_models(client)
+    user_prompt_1 = f"CONTEXTO DA SEMANA:\n{json.dumps(context, ensure_ascii=False, indent=2)}\n\nEscreva a primeira versão do post."
+    draft_1 = call_groq(model, system_prompt_1, user_prompt_1)
 
-    for model_name in candidate_models:
-        print(f"🤖 Gerando postagens com o modelo Groq: {model_name}...", flush=True)
-        
-        # Tenta primeiro com JSON mode e depois sem
-        for try_json_mode in [True, False]:
-            try:
-                kwargs = {
-                    "model": model_name,
-                    "messages": [
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    "temperature": 0.7,
-                    "max_tokens": 3000
-                }
-                if try_json_mode:
-                    kwargs["response_format"] = {"type": "json_object"}
+    # =========================================================================
+    # ETAPA 2: SIMPLIFICAÇÃO DIDÁTICA E REMOÇÃO DE TÍTULOS
+    # =========================================================================
+    print(" ➔ [Etapa 2/3] Simplificando linguagem para iniciantes e removendo títulos de seções...", flush=True)
+    
+    system_prompt_2 = """
+    Você é um editor de texto especialista em clareza e didática.
+    MUDE O TEXTO RECEBIDO SEGUINDO ESTAS REGRAS:
+    1. Deixe de facílima compreensão para quem está iniciando na área de tecnologia.
+    2. NUNCA use termos desnecessariamente complexos ou termos como "dados geofísicos", "ecossistema dinâmico", "paradigma", etc.
+    3. Remova COMPLETAMENTE qualquer título de seção ou marcação (ex: não use "Gancho 1:", "Corpo:", "Etapa 1:", "Conclusão:").
+    4. Mantenha a estrutura em quebras de linha frequentes.
+    """
 
-                response = client.chat.completions.create(**kwargs)
-                raw_text = response.choices[0].message.content.strip()
-                
-                if raw_text and len(raw_text) > 30:
-                    ideas = parse_response_to_ideas(raw_text)
-                    if ideas:
-                        print(f"✅ Sucesso! {len(ideas)} postagem(ns) gerada(s) com o modelo: {model_name}", flush=True)
-                        return ideas
-            except Exception:
-                continue
+    user_prompt_2 = f"TEXTO PARA SIMPLIFICAR:\n{draft_1}"
+    draft_2 = call_groq(model, system_prompt_2, user_prompt_2)
 
-    raise RuntimeError("❌ Nenhum modelo do Groq conseguiu retornar um resultado válido.")
+    # =========================================================================
+    # ETAPA 3: REFINAMENTO DE ESTILO, FLUIDEZ E VERSÃO PRONTA PARA POSTAR
+    # =========================================================================
+    print(" ➔ [Etapa 3/3] Lapidando estilo, fluidez e gerando a versão final pronta para postar...", flush=True)
+
+    system_prompt_3 = """
+    Você é um consultor de marca pessoal de tecnologia.
+    Sua missão é fazer a revisão final do post.
+
+    REGRAS DE REFINAMENTO FINAL:
+    1. Refine o texto para combinar com um tom humano, autêntico e natural de um desenvolvedor experiente.
+    2. Qualquer parte que não parecer fluir bem conceitualmente, reescreva para soar fluida e envolvente.
+    3. Remova qualquer jargão corporativo ou clichê artificial de IA ("no mundo dinâmico de hoje", "revolucionar", "alavancar", "vamos lá").
+    4. Entregue o texto final 100% PRONTO PARA PUBLICAR NO LINKEDIN.
+
+    FORMATO DE SAÍDA:
+    Retorne EXCLUSIVAMENTE um objeto JSON com o formato:
+    {
+      "titulo_ideia": "Título curto sobre o tema para identificação interna",
+      "pilar": "Dev & Código",
+      "formato": "Tutorial / Dica Prática",
+      "conteudo_post": "Texto completo refinado pronto para publicar..."
+    }
+    """
+
+    user_prompt_3 = f"TEXTO PARA REFINAR E ENTREGAR VERSÃO PRONTA:\n{draft_2}\n\nRetorne apenas o JSON puro."
+    
+    try:
+        final_json_raw = call_groq(model, system_prompt_3, user_prompt_3)
+        if "```" in final_json_raw:
+            match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", final_json_raw)
+            final_json_raw = match.group(1).strip() if match else final_json_raw.replace("```json", "").replace("```", "").strip()
+
+        final_data = json.loads(final_json_raw)
+        return [final_data]
+    except Exception as e:
+        print(f"⚠️ Erro ao estruturar JSON final: {e}. Usando fallback limpo.")
+        return [{
+            "titulo_ideia": "Post da Semana (Refinado)",
+            "pilar": "Dev & Código",
+            "formato": "Tutorial / Dica Prática",
+            "conteudo_post": draft_2
+        }]
 
 if __name__ == "__main__":
     ideas = generate_ideas()
-    print(f"\n✅ {len(ideas)} Ideias geradas com sucesso!\n", flush=True)
+    print(f"\n✅ Post final lapidado e pronto para publicação!\n", flush=True)
     print(json.dumps(ideas, ensure_ascii=False, indent=2))
