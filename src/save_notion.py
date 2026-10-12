@@ -3,8 +3,7 @@ import sys
 import json
 import requests
 import unicodedata
-import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 CURRENT_DIR = Path(__file__).resolve().parent
@@ -16,15 +15,12 @@ try:
 except:
     pass
 
-print("🚀 Iniciando save_notion.py...", flush=True)
-
 def load_clean_env():
     project_root = Path(__file__).resolve().parent.parent
     env_path = project_root / ".env"
     if not env_path.exists():
         env_path = Path(".env")
     if env_path.exists():
-        print(f"📄 Lendo .env de: {env_path}", flush=True)
         raw_bytes = env_path.read_bytes()
         clean_text = raw_bytes.decode("utf-8-sig")
         for line in clean_text.splitlines():
@@ -48,12 +44,6 @@ NOTION_DATABASE_IDEAS_ID = get_alias("NOTION_DATABASE_IDEAS_ID", "NOTION_DATABAS
 if not NOTION_DATABASE_IDEAS_ID:
     NOTION_DATABASE_IDEAS_ID = "3de714ac-461f-80e5-af97-c64de001aede"
 
-if not NOTION_TOKEN:
-    print("❌ Token do Notion não encontrado no .env!", flush=True)
-    raise SystemExit(1)
-
-from generate_ideas import generate_ideas
-
 HEADERS = {
     "Authorization": f"Bearer {NOTION_TOKEN}",
     "Notion-Version": "2022-06-28",
@@ -63,15 +53,51 @@ HEADERS = {
 def normalize(s):
     return unicodedata.normalize('NFKD', s).encode('ASCII','ignore').decode('ASCII').lower().strip()
 
+def cleanup_old_posts(days=30):
+    """Arquiva/remove posts do Notion com data de criação superior a 30 dias."""
+    print(f"\n🧹 Verificando e limpando posts com mais de {days} dias no Notion...", flush=True)
+    cutoff_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    
+    url = f"https://api.notion.com/v1/databases/{NOTION_DATABASE_IDEAS_ID}/query"
+    query_payload = {
+        "filter": {
+            "property": "Data de criação",
+            "date": {
+                "before": cutoff_date
+            }
+        }
+    }
+    
+    try:
+        r = requests.post(url, headers=HEADERS, json=query_payload, timeout=30)
+        if r.status_code == 200:
+            results = r.json().get("results", [])
+            if not results:
+                print("  ✅ Nenhum post antigo para remover.", flush=True)
+                return 0
+            
+            archived_count = 0
+            for page in results:
+                page_id = page["id"]
+                page_url = f"https://api.notion.com/v1/pages/{page_id}"
+                patch_res = requests.patch(page_url, headers=HEADERS, json={"archived": True}, timeout=30)
+                if patch_res.status_code == 200:
+                    archived_count += 1
+            print(f"  🗑️ {archived_count} post(s) antigo(s) arquivado(s)/removido(s) com sucesso!", flush=True)
+            return archived_count
+        else:
+            print(f"  ⚠️ Não foi possível consultar posts antigos: {r.status_code}", flush=True)
+    except Exception as e:
+        print(f"  ⚠️ Erro durante a limpeza de posts no Notion: {e}", flush=True)
+    return 0
+
 def get_schema():
     url = f"https://api.notion.com/v1/databases/{NOTION_DATABASE_IDEAS_ID}"
     r = requests.get(url, headers=HEADERS, timeout=30)
     if r.status_code != 200:
         print(f"❌ Erro ao ler schema do Notion: {r.status_code} - {r.text}")
         return {}
-    props = r.json().get("properties", {})
-    print(f"📋 Colunas encontradas no Notion: {list(props.keys())}", flush=True)
-    return props
+    return r.json().get("properties", {})
 
 def build_select_payload(prop_def, desired_name):
     ptype = prop_def.get("type")
@@ -92,6 +118,9 @@ def save_ideas_to_notion(ideas):
     if not ideas:
         print("⚠️ Nenhuma ideia para salvar.", flush=True)
         return 0
+
+    # Executa a limpeza automática de posts de mais de 30 dias primeiro
+    cleanup_old_posts(days=30)
 
     schema_props = get_schema()
     if not schema_props:
@@ -169,8 +198,7 @@ def save_ideas_to_notion(ideas):
     return saved
 
 if __name__ == "__main__":
-    print("🔍 Gerando ideias...", flush=True)
+    from generate_ideas import generate_ideas
     ideas = generate_ideas()
-    print(f"\n📦 {len(ideas)} ideias geradas, enviando para Notion...", flush=True)
     saved = save_ideas_to_notion(ideas)
-    print(f"\n🎉 FIM! {saved}/{len(ideas)} posts salvos no Notion! Dê F5 no Notion.", flush=True)
+    print(f"\n🎉 FIM! {saved} post salvo no Notion.", flush=True)
