@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Optional
 
 @dataclass
 class PostDraft:
@@ -6,6 +7,7 @@ class PostDraft:
     pillar: str
     suggested_format: str
     content: str
+    image_path: Optional[str] = None
 
 @dataclass
 class TechNews:

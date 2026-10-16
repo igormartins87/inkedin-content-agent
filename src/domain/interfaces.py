@@ -20,6 +20,12 @@ class INotionRepository(ABC):
     def cleanup_old_posts(self, days: int = 30) -> int:
         pass
 
+class IVisualGenerator(ABC):
+    @abstractmethod
+    def generate_card(self, post: PostDraft) -> str:
+        """Gera o card visual do post e retorna o caminho do arquivo gerado."""
+        pass
+
 class INotificationService(ABC):
     @abstractmethod
     def send_notification(self, post: PostDraft) -> bool:

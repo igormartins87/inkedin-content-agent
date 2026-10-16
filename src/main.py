@@ -11,31 +11,31 @@ try:
 except:
     pass
 
-# Importação dos Adaptadores de Infraestrutura
 from src.infrastructure.collectors import ContextAggregatorCollector
 from src.infrastructure.llm_provider import GroqLLMProvider
 from src.infrastructure.notion_repo import NotionRepository
+from src.infrastructure.visual_generator import PillowVisualGeneratorAdapter
 from src.infrastructure.gmail_notifier import GmailNotificationService
 
-# Importação do Caso de Uso
 from src.use_cases.generate_weekly_post import GenerateWeeklyPostUseCase
 
 def main():
-    # Instanciação dos adaptadores concretos (Dependency Injection Container)
+    # Instanciação dos adaptadores concretos (Hexagonal Architecture)
     collector = ContextAggregatorCollector()
     llm_provider = GroqLLMProvider()
     repository = NotionRepository()
+    visual_generator = PillowVisualGeneratorAdapter()
     notifier = GmailNotificationService()
 
-    # Injeção de dependências no caso de uso
+    # Injeção de dependências
     use_case = GenerateWeeklyPostUseCase(
         collector=collector,
         llm_provider=llm_provider,
         repository=repository,
+        visual_generator=visual_generator,
         notifier=notifier
     )
 
-    # Execução
     use_case.execute()
 
 if __name__ == "__main__":

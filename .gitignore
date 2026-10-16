@@ -220,3 +220,4 @@ __marimo__/
 # Segurança - nunca commitar
 .env
 *.log
+*.png
